@@ -1,0 +1,4 @@
+dist/
+shots/
+*.zip
+node_modules/
