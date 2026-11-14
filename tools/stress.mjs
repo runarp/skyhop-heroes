@@ -11,8 +11,11 @@ const file = 'file://' + path.join(path.dirname(fileURLToPath(import.meta.url)),
 const errors = [];
 
 // 1) quiz answers must match an independent count of the picture shown with them
-for (let lvl = 0; lvl < 3; lvl++) for (let i = 0; i < 4000; i++) {
-  const q = SH.makeQuestion({ brain: { mode: ['easy', 'medium', 'hard'][lvl], lvl: 0 } }, 0);
+const BR = require('../src/brain.js');
+BR.useDatabase(JSON.parse(require('fs').readFileSync(new URL('../src/bank.json', import.meta.url), 'utf8')));
+for (const item of SH.BANK) { const r = BR.verifyItem(item); if (!r.ok) errors.push('database puzzle ' + item.id + ': ' + r.errors[0]); }
+for (const t of SH.TEMPLATES) for (let i = 0; i < 400; i++) {
+  const q = t.make();
   if (q.a < 0 || q.a >= q.choices.length || new Set(q.choices).size !== q.choices.length) errors.push('bad choices: ' + q.q);
   const ans = q.choices[q.a];
   if (q.viz && /^\d+$/.test(ans) && /How many|how many/.test(q.q)) {
@@ -64,7 +67,7 @@ const result = await page.evaluate(async () => {
     for (const c of SH.CITIES) if (c.tier < city.tier) { s.stars.push(c.id); s.prog[c.id] = 4; }
     s.items = { apple: 2, sandwich: 2, cake: 1, redie: 2, bubble: 2, bomb: 2, juice: 2 };
     s.gear = { w: weapons[city.tier], s: n % 2 ? 's1' : n % 5 === 0 ? 's2' : null, c: charms[n % charms.length] };
-    s.brain.mode = ['auto', 'easy', 'medium', 'hard', 'off'][n % 5]; s.showOdds = n % 4 !== 0;
+    s.brain = { mode: n % 5 ? 'auto' : 'off', right: 0, asked: 0 }; BR.ensure(s); BR.setLevel(s, 1 + (n % 12)); s.showOdds = n % 4 !== 0;
     UI.store.saves[0] = s; UI.store.settings.sound = false; UI.store.settings.fast = true; UI.ACT.play({ i: 0 });
     const w0 = s.wins, l0 = s.losses;
     UI.startBattle(SH.makeMob(city, stage));
@@ -77,6 +80,15 @@ const result = await page.evaluate(async () => {
     UI.closeModal();
   }
   // every other screen once more, with a late-game save
+  // the Brain Gym, end to end, at three levels
+  for (const L of [1, 6, 12]) {
+    BR.setLevel(UI.S, L); UI.S.gym = true; const c0 = UI.S.coins, a0 = UI.S.brain.asked;
+    const done = UI.ACT.gym();
+    for (let i = 0; i < 400 && document.querySelector('#modal.on'); i++) { await tick(); const p = [...document.querySelectorAll('#modal [data-pick]')].filter(b => !b.closest('.quiz-a.done') && b.dataset.pick !== 'no'); if (p.length) p[Math.floor(Math.random() * p.length)].click(); }
+    await done;
+    if (UI.S.brain.asked - a0 !== 5) stats.bad.push('Brain Gym asked ' + (UI.S.brain.asked - a0) + ' puzzles, not 5');
+    if (UI.S.gym !== false) stats.bad.push('Brain Gym did not empty the coin jar');
+  }
   UI.ACT.map(); for (const c of SH.CITIES) UI.ACT.pin({ id: c.id });
   UI.ACT.city(); UI.ACT.shop(); UI.ACT.team(); for (const t of ['bag', 'passport', 'heroes']) UI.ACT.tab({ t });
   UI.closeModal(); UI.ACT.settings(); UI.closeModal();

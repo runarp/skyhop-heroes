@@ -1,0 +1,13 @@
+{
+  "name": "skyhop-heroes",
+  "private": true,
+  "description": "A dice-and-brains fighter RPG for kids. The game itself has no dependencies; the SDK is only for the puzzle generator.",
+  "scripts": {
+    "build": "node build.mjs",
+    "verify": "node tools/verify-bank.mjs",
+    "puzzles": "node tools/gen-bank.mjs"
+  },
+  "devDependencies": {
+    "@anthropic-ai/sdk": "1.8.0"
+  }
+}

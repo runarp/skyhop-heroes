@@ -9,15 +9,18 @@ const rd = f => fs.readFileSync(path.join(root, 'src', f), 'utf8');
 const b64 = f => fs.readFileSync(path.join(root, 'src/fonts', f)).toString('base64');
 const fontCss = [500, 700].map(w => `@font-face{font-family:'Fredoka';font-style:normal;font-weight:${w};font-display:swap;src:url(data:font/woff2;base64,${b64(`fredoka-latin-${w}-normal.woff2`)}) format('woff2')}`).join('\n');
 const css = fontCss + '\n' + rd('style.css');
-const scripts = ['engine.js', 'art.js', 'art2.js', 'ui.js', 'battle.js'];
+const scripts = ['engine.js', 'brain.js', 'art.js', 'art2.js', 'ui.js', 'battle.js'];
+const bankText = rd('bank.json');
+const bank = JSON.parse(bankText);
 for (const f of scripts) if (/<\/script/i.test(rd(f))) throw new Error(f + ' contains a closing script tag');
-const js = scripts.map(f => `<script>\n${rd(f)}\n</script>`).join('\n');
+const js = scripts.map(f => `<script>\n${rd(f)}\n</script>` + (f === 'brain.js' ? `\n<script>BR.useDatabase(${JSON.stringify(bank).replace(/</g, '\\u003c')});</script>` : '')).join('\n');
 const body = `<div id="app"></div>\n<div id="modal"></div>\n<div id="toast" aria-live="polite"></div>`;
 const boot = `<script>UI.boot();</script>`;
 const dist = path.join(root, 'dist');
 fs.mkdirSync(dist, { recursive: true });
 for (const f of fs.readdirSync(path.join(root, 'src/icons'))) fs.copyFileSync(path.join(root, 'src/icons', f), path.join(dist, f));
 fs.writeFileSync(path.join(dist, 'robots.txt'), 'User-agent: *\nDisallow: /\n');
+fs.writeFileSync(path.join(dist, 'bank.json'), bankText);
 
 const artifact = `<title>Skyhop Heroes</title>\n<meta name="claude:viewport-fit-sides" content="cover">\n<style>\n${css}\n</style>\n${body}\n${js}\n${boot}\n`;
 fs.writeFileSync(path.join(dist, 'artifact.html'), artifact);
@@ -56,10 +59,10 @@ if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.
 </html>
 `;
 fs.writeFileSync(path.join(dist, 'index.html'), pwa);
-const hash = crypto.createHash('sha256').update(pwa).digest('hex').slice(0, 10);
+const hash = crypto.createHash('sha256').update(pwa + bankText).digest('hex').slice(0, 10);
 fs.writeFileSync(path.join(dist, 'sw.js'), `// Skyhop Heroes offline cache. A new build changes the cache name, which refreshes every file.
 const CACHE = 'skyhop-heroes-${hash}';
-const FILES = ['./', 'index.html', 'manifest.webmanifest', 'icon-180.png', 'icon-192.png', 'icon-512.png'];
+const FILES = ['./', 'index.html', 'bank.json', 'manifest.webmanifest', 'icon-180.png', 'icon-192.png', 'icon-512.png'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)).then(() => self.skipWaiting()));
 });
@@ -69,6 +72,14 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   const req = e.request;
   if (req.method !== 'GET' || new URL(req.url).origin !== location.origin) return;
+  // The question database: try the network first so new puzzles arrive, fall back to the saved copy offline.
+  if (new URL(req.url).pathname.endsWith('/bank.json')) {
+    e.respondWith(fetch(req).then(res => {
+      if (res && res.ok) { const copy = res.clone(); caches.open(CACHE).then(c => c.put('bank.json', copy)); }
+      return res;
+    }).catch(() => caches.match('bank.json')));
+    return;
+  }
   e.respondWith(caches.match(req, { ignoreSearch: true }).then(hit => {
     const net = fetch(req).then(res => {
       if (res && res.ok) { const copy = res.clone(); caches.open(CACHE).then(c => c.put(req, copy)); }

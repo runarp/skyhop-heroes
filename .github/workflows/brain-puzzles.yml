@@ -1,0 +1,54 @@
+# Asks Claude for new Brain puzzles once a month (or when you press "Run workflow"),
+# keeps only the ones the game's own checker proves correct, saves them to the question
+# database and republishes the game. Needs the ANTHROPIC_API_KEY repository secret.
+name: Add new brain puzzles
+on:
+  workflow_dispatch:
+    inputs:
+      count:
+        description: How many puzzles to ask for (1-40)
+        default: '20'
+      levels:
+        description: Levels to write, like 9-14 (leave empty for just above the current top level)
+        default: ''
+  schedule:
+    - cron: '17 3 1 * *'
+permissions:
+  contents: write
+  actions: write
+concurrency:
+  group: brain-puzzles
+  cancel-in-progress: false
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - name: Ask Claude for puzzles and check them
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          COUNT: ${{ inputs.count || '20' }}
+          LEVELS: ${{ inputs.levels || '' }}
+        run: |
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "::notice::Add the ANTHROPIC_API_KEY secret to turn on new puzzles."
+            exit 0
+          fi
+          if [ -n "$LEVELS" ]; then node tools/gen-bank.mjs --count "$COUNT" --levels "$LEVELS"; else node tools/gen-bank.mjs --count "$COUNT"; fi
+      - name: Check the whole database again
+        run: node tools/verify-bank.mjs
+      - name: Save the new puzzles and republish the game
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if git diff --quiet src/bank.json; then echo "No new puzzles this time."; exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/bank.json
+          git commit -m "Add Claude-written brain puzzles"
+          git push
+          gh workflow run pages.yml --ref main

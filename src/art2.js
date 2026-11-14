@@ -260,7 +260,7 @@ ART.die = function (sides, v) {
   }
   var shape = sides === 8 ? 'M50 5 L93 50 L50 95 L7 50Z' : 'M50 5 L79 14 L95 40 L90 70 L67 92 L33 92 L10 70 L5 40 L21 14Z';
   o = '<path d="' + shape + '"' + DS + '/>' + (sides === 8 ? L('M7 50 L93 50', 2.5, 'rgba(42,31,61,.25)') : '');
-  o += '<text x="50" y="' + (sides === 8 ? 64 : 65) + '" font-size="' + (v > 9 ? 40 : 44) + '" font-weight="700" text-anchor="middle" style="fill:var(--pip,#2a1f3d)">' + (v || '?') + '</text>';
+  o += '<text x="50" y="' + (sides === 8 ? 64 : 65) + '" font-size="' + (v > 9 ? 40 : 44) + '" font-weight="700" text-anchor="middle" style="fill:var(--pip,#2a1f3d)">' + (v === undefined || v === null ? '?' : v) + '</text>';
   return svg('0 0 100 100', o, 'dieface');
 };
 

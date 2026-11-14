@@ -19,6 +19,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Check every puzzle in the question database
+        run: node tools/verify-bank.mjs
       - run: node build.mjs
       - run: node tools/sim.mjs 200 > /dev/null
       - uses: actions/configure-pages@v5

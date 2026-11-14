@@ -38,6 +38,7 @@ function fixSave(s) {
   if (!s.brain) s.brain = blank.brain;
   if (!SH.cityById(s.city)) s.city = 'london';
   if (s.heroes.indexOf(s.hero) < 0) s.hero = s.heroes[0];
+  BR.ensure(s);
   return s;
 }
 
@@ -239,6 +240,7 @@ function showCity() {
     '<div class="city-mid"><div class="city-hero">' + ART.hero(S.hero) + '</div><div class="bubble"><b>' + h.name + '</b> · Level ' + S.lvl + ' · ' + ico('heart') + ' ' + st.maxHp + ' · ' + ico('power') + ' ' + st.power + '<br>' + quest + '</div></div></div>' +
     '<div class="deck"><div class="stages">' + stages + '</div><div class="city-nav">' +
     '<button class="btn blue" data-act="shop">' + ico('shop') + 'Shop</button><button class="btn ghost" data-act="team">' + ico('bag') + 'Team</button>' +
+    (BR.ensure(S).mode !== 'off' ? '<button class="btn pink" data-act="gym">' + ico('brain') + 'Brain Gym</button>' : '') +
     '<button class="btn grape" data-act="derby">' + ico('dice') + 'Dice Derby</button><button class="btn green" data-act="map">' + ico('plane') + 'World map</button></div></div></div>';
 }
 ACT.city = function () { showCity(); };
@@ -402,7 +404,7 @@ function teamHTML() {
     }).join('') : '<p class="small soft">Your bag is empty.</p>') + '</div><p class="small soft">You use these during a fight. One item each round, and it does not cost your turn.</p>';
   } else {
     body = '<div class="kv"><div><small>Wonder Stars</small><b>' + S.stars.length + ' / ' + SH.CITIES.length + '</b></div><div><small>Flown</small><b>' + fmt(S.km) + ' km</b></div>' +
-      '<div><small>Fights won</small><b>' + S.wins + '</b></div><div><small>Brain Boosts</small><b>' + S.brain.right + ' / ' + S.brain.asked + '</b></div></div>' +
+      '<div><small>Fights won</small><b>' + S.wins + '</b></div><div><small>Brain level</small><b>' + BR.level(S) + '</b></div><div><small>Puzzles right</small><b>' + S.brain.right + ' / ' + S.brain.asked + '</b></div></div>' +
       '<div class="stamps">' + SH.CITIES.map(function (c) {
         var done = S.stars.indexOf(c.id) >= 0;
         return '<div class="stampcell"><div class="stamp' + (done ? '' : ' off') + '">' + ART.stamp(c.id) + '</div>' + c.name + '</div>';
@@ -424,16 +426,30 @@ function seg(act, cur, opts) {
   return '<div class="seg">' + opts.map(function (o) { return '<button data-act="' + act + '" data-v="' + o[0] + '"' + (String(cur) === String(o[0]) ? ' class="on"' : '') + '>' + o[1] + '</button>'; }).join('') + '</div>';
 }
 function settingsHTML(inBattle) {
-  var S = UI.S, st = UI.store.settings, lv = ['Easy', 'Medium', 'Hard'][SH.quizLevel(S, 0)];
+  var S = UI.S, st = UI.store.settings;
   return '<div class="m-head">' + ico('gear') + '<h2>Settings</h2></div>' +
     '<div class="setrow"><b>Sound</b>' + seg('setSound', st.sound ? 1 : 0, [[1, 'On'], [0, 'Off']]) + '</div>' +
     '<div class="setrow"><b>Dice speed</b>' + seg('setFast', st.fast ? 1 : 0, [[0, 'Normal'], [1, 'Fast']]) + '</div>' +
-    '<div class="setrow"><b>Brain Boost questions</b>' + seg('setBrain', S.brain.mode, [['auto', 'Auto'], ['easy', 'Easy'], ['medium', 'Medium'], ['hard', 'Hard'], ['off', 'Off']]) +
-    '<span class="small soft">' + (S.brain.mode === 'auto' ? 'Auto follows the player. Three right in a row makes them harder, two wrong makes them easier. Now: ' + lv + '.' : S.brain.mode === 'off' ? 'No questions. The Brain Boost button is hidden.' : 'Always ' + lv.toLowerCase() + ' questions.') + '</span></div>' +
+    brainHTML(S) +
     '<div class="setrow"><b>Show the chances on every move</b>' + seg('setOdds', S.showOdds ? 1 : 0, [[1, 'Show'], [0, 'Hide']]) +
     '<span class="small soft">Hide them once counting faces is easy. Then the player has to work the chances out.</span></div>' +
     '<div class="m-row">' + (inBattle ? '<button class="btn red" data-act="runAway">Run away</button>' : '<button class="btn ghost" data-act="howto">How to play</button><button class="btn ghost" data-act="quit">Save and quit</button>') +
     '<button class="btn green" data-act="closeSettings">Done</button></div>';
+}
+/* Grown-up controls and the progress report for the adaptive puzzles. */
+function brainHTML(S) {
+  var br = BR.ensure(S), L = BR.level(S), max = BR.maxLevel(), r20 = BR.recentRate(S, 20), top = BR.levelReal(S) > max + 0.5;
+  var dots = br.hist.slice(-20).map(function (h) { return '<i class="' + (h.ok ? 'ok' : 'no') + '" title="Level ' + h.l + (h.ok ? ', right' : ', wrong') + '"></i>'; }).join('');
+  var report = br.asked ? (r20.n ? 'Last ' + r20.n + ' puzzles: <b>' + r20.right + ' right (' + Math.round(100 * r20.right / r20.n) + '%)</b>. ' : '') + 'All time: ' + br.right + ' of ' + br.asked + ' right.' : 'No puzzles answered yet.';
+  if (br.mode === 'off') return '<div class="setrow"><b>Brain puzzles</b>' + seg('setBrain', 'off', [['auto', 'On'], ['off', 'Off']]) + '<span class="small soft">No puzzles. The Brain Boost button and the Brain Gym are hidden.</span></div>';
+  return '<div class="setrow"><b>Brain puzzles</b>' + seg('setBrain', 'auto', [['auto', 'On'], ['off', 'Off']]) + '</div>' +
+    '<div class="setrow"><b>Aim for</b>' + seg('setTarget', br.target, [[0.6, '6 in 10 right'], [0.7, '7 in 10 right'], [0.8, '8 in 10 right']]) +
+    '<span class="small soft">Puzzles get harder after right answers and easier after wrong ones, until about this many come out right.</span></div>' +
+    '<div class="setrow"><b>Puzzle level</b><div class="lvlrow"><button class="iconbtn" data-act="brainLvl" data-d="-1" aria-label="Easier">−</button><span class="lvlnum">' + L + '</span>' +
+    '<button class="iconbtn" data-act="brainLvl" data-d="1" aria-label="Harder">+</button><span class="small soft">of ' + max + '. ' +
+    (top ? 'Top level reached. Add harder puzzles to the database.' : 'The game moves this by itself. Change it to start higher or lower.') + '</span></div></div>' +
+    '<div class="setrow"><b>Brain report</b><span class="small">' + report + '</span>' + (dots ? '<span class="dots" aria-label="Last answers">' + dots + '</span>' : '') +
+    '<span class="small soft">' + SH.BANK.length + ' database puzzles' + (BR.dbUpdated ? ', updated ' + BR.dbUpdated : '') + ', plus ' + SH.TEMPLATES.length + ' built-in kinds.</span></div>';
 }
 var settingsInBattle = false;
 ACT.settings = function () { settingsInBattle = false; openModal(settingsHTML(false)); };
@@ -441,7 +457,9 @@ UI.battleSettings = function () { settingsInBattle = true; openModal(settingsHTM
 function refreshSettings() { openModal(settingsHTML(settingsInBattle)); $('.modal-card').style.animation = 'none'; }
 ACT.setSound = function (d) { UI.store.settings.sound = d.v === '1'; persist(); refreshSettings(); };
 ACT.setFast = function (d) { UI.store.settings.fast = d.v === '1'; persist(); refreshSettings(); };
-ACT.setBrain = function (d) { UI.S.brain.mode = d.v; UI.S.brain.streak = 0; persist(); refreshSettings(); };
+ACT.setBrain = function (d) { BR.ensure(UI.S).mode = d.v; persist(); refreshSettings(); if (!settingsInBattle) showCityKeepModal(); };
+ACT.setTarget = function (d) { BR.ensure(UI.S).target = parseFloat(d.v); persist(); refreshSettings(); };
+ACT.brainLvl = function (d) { BR.setLevel(UI.S, BR.level(UI.S) + Number(d.d)); persist(); refreshSettings(); };
 ACT.setOdds = function (d) { UI.S.showOdds = d.v === '1'; persist(); refreshSettings(); };
 ACT.closeSettings = function () { closeModal(); if (settingsInBattle && UI.battleRefresh) UI.battleRefresh(); };
 ACT.quit = function () { persist(); showTitle(); };
@@ -476,5 +494,37 @@ window.addEventListener('resize', function () { layoutMap(false); });
 UI.$ = $; UI.sleep = sleep; UI.T = T; UI.esc = esc; UI.fmt = fmt; UI.ico = ico; UI.sfx = sfx; UI.persist = persist; UI.toast = toast; UI.confetti = confetti;
 UI.openModal = openModal; UI.closeModal = closeModal; UI.modalPick = modalPick; UI.waitPick = waitPick; UI.moveCard = moveCard; UI.oddsViz = oddsViz;
 UI.traitTags = traitTags; UI.showCity = showCity; UI.showTitle = showTitle; UI.app = app; UI.cap = cap;
-UI.boot = function () { load(); showTitle(); };
+/* Brain Gym: five puzzles in a row. Coins are paid once per fight won, so it cannot be farmed. */
+ACT.gym = async function () {
+  var S = UI.S, paid = S.gym !== false;
+  var go = await modalPick('<div class="m-head">' + ico('brain') + '<h2 class="grow">Brain Gym</h2><span class="tag fx">Level ' + BR.level(S) + '</span></div>' +
+    '<p>Five puzzles in a row. They get harder when you get them right, and easier when you don’t.</p>' +
+    '<p class="small">' + (paid ? 'Each right answer wins coins. Harder puzzles win more.' : 'The coin jar is empty. Win a fight to fill it again. You can still practise!') + '</p>' +
+    '<div class="m-row"><button class="btn ghost" data-pick="no">Not now</button><button class="btn big green" data-pick="go">Start</button></div>');
+  if (go !== 'go') return;
+  var right = 0, coins = 0;
+  for (var i = 0; i < 5; i++) {
+    var q = BR.pick(S), ok = await UI.askQuestion(q, { title: 'Brain Gym', step: (i + 1) + ' of 5', okRight: i < 4 ? 'Next puzzle' : 'Finish', okWrong: i < 4 ? 'Next puzzle' : 'Finish' });
+    var r = BR.record(S, q, ok);
+    if (ok) { right++; if (paid) { coins += 2 + q.lvl; S.coins += 2 + q.lvl; } }
+    if (r.after > r.before) toast('Brain level ' + r.after + '! The puzzles get trickier.');
+    persist();
+  }
+  if (paid) S.gym = false;
+  persist(); sfx(right >= 4 ? 'win' : 'good');
+  await modalPick('<h2 class="center">' + (right === 5 ? 'Perfect!' : right >= 3 ? 'Great thinking!' : 'Good practice!') + '</h2><div class="m-art">' + ART.hero(S.hero) + '</div>' +
+    '<div class="reward"><span class="chip">' + ico('check') + right + ' of 5 right</span>' + (paid ? '<span class="chip">' + ico('coin') + '+' + coins + '</span>' : '') +
+    '<span class="chip">' + ico('brain') + 'Level ' + BR.level(S) + '</span></div><div class="m-row"><button class="btn big green" data-pick="ok">Done</button></div>');
+  showCity();
+};
+
+/* The question database ships inside the game, so it works offline. When online, a newer
+   copy (bank.json, published next to the game) replaces it; the offline cache keeps it. */
+function refreshDatabase() {
+  if (!/^https?:$/.test(location.protocol) || !window.fetch) return;
+  fetch('bank.json', { cache: 'no-cache' }).then(function (r) { return r.ok ? r.json() : null; }).then(function (db) {
+    if (db && Number.isInteger(db.version) && db.version > (BR.dbVersion || 0) && Array.isArray(db.items) && db.items.length) BR.useDatabase(db);
+  }).catch(function () { /* offline or not published: keep the built-in database */ });
+}
+UI.boot = function () { load(); showTitle(); refreshDatabase(); };
 })();

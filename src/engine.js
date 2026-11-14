@@ -490,7 +490,7 @@ SH.newSave = function (name, heroId) {
   return { v: 1, name: name, hero: heroId, heroes: [heroId], lvl: 1, xp: 0, coins: 10,
     items: { apple: 2, redie: 1 }, gear: { w: null, s: null, c: null }, owned: [],
     city: 'london', prog: {}, stars: [], km: 0, flights: 0, wins: 0, losses: 0,
-    brain: { mode: 'auto', lvl: 0, streak: 0, right: 0, asked: 0 }, showOdds: true, seen: {}, done: false };
+    brain: { mode: 'auto', right: 0, asked: 0 }, showOdds: true, seen: {}, done: false, gym: true };
 };
 SH.addXp = function (save, xp) {
   var ups = 0;
@@ -518,7 +518,7 @@ SH.winBattle = function (b) {
   s.coins += r.coins + r.back;
   r.ups = SH.addXp(s, r.xp);
   if (r.drop) SH.giveItem(s, r.drop, 1);
-  s.wins++;
+  s.wins++; s.gym = true;
   var city = SH.cityById(mob.city), before = s.stars.length;
   var prog = s.prog[city.id] || 0;
   if (mob.stage === prog && prog < 4) { s.prog[city.id] = prog + 1; r.firstClear = true; }
@@ -662,33 +662,19 @@ var QUIZ = [
         '10, 11 and 12 will do. 3 of 12 is the same as 1 in 4.', { t: 'faces', s: 12, fn: function (f) { return f >= 10; } }); }
   ]
 ];
-SH.QUIZ_LEVELS = QUIZ.length;
-SH.quizLevel = function (save, tier) {
-  var m = save.brain.mode;
-  if (m === 'easy') return 0;
-  if (m === 'medium') return 1;
-  if (m === 'hard') return 2;
-  return Math.max(0, Math.min(2, save.brain.lvl));
-};
-SH.makeQuestion = function (save, tier) {
-  var lvl = SH.quizLevel(save, tier), pool = QUIZ[lvl];
-  if (lvl > 0 && SH.rand() < 0.25) pool = QUIZ[lvl - 1];
-  var last = save.brain.last, q, tries = 0;
-  do { var i = Math.floor(SH.rand() * pool.length); q = pool[i](); q.key = pool === QUIZ[lvl] ? lvl + ':' + i : (lvl - 1) + ':' + i; tries++; } while (q.key === last && tries < 6);
-  save.brain.last = q.key;
-  return q;
-};
-/* Auto mode follows the child: 3 right in a row steps up, 2 wrong in a row steps down. */
-SH.answerQuestion = function (save, correct) {
-  var br = save.brain;
-  br.asked++;
-  if (correct) { br.right++; br.streak = br.streak > 0 ? br.streak + 1 : 1; }
-  else br.streak = br.streak < 0 ? br.streak - 1 : -1;
-  if (br.mode === 'auto') {
-    if (br.streak >= 3 && br.lvl < 2) { br.lvl++; br.streak = 0; }
-    else if (br.streak <= -2 && br.lvl > 0) { br.lvl--; br.streak = 0; }
-  }
-};
+/* Every hand-written puzzle template with its difficulty level (1-15) and skill tag.
+   The adaptive picker in brain.js mixes these with the puzzle bank (bank.json). */
+var TPL_META = [
+  [[1, 'faces'], [2, 'dodge'], [1, 'faces'], [2, 'compare'], [2, 'chance'], [1, 'coins'], [2, 'faces']],
+  [[4, 'sum2'], [4, 'sum2'], [5, 'sum2'], [3, 'coins'], [4, 'coins'], [3, 'faces'], [4, 'pairs'], [3, 'pairs'], [6, 'complement']],
+  [[6, 'complement'], [6, 'sum2'], [5, 'strategy'], [5, 'strategy'], [5, 'coins'], [6, 'coins'], [6, 'expect'], [7, 'dodge'], [5, 'independence'], [6, 'chance']]
+];
+SH.TEMPLATES = [];
+QUIZ.forEach(function (grp, g) {
+  if (grp.length !== TPL_META[g].length) throw new Error('TPL_META does not match QUIZ group ' + g);
+  grp.forEach(function (fn, i) { SH.TEMPLATES.push({ id: 't' + g + '-' + i, lvl: TPL_META[g][i][0], skill: TPL_META[g][i][1], make: fn, tpl: true }); });
+});
+SH.BANK = SH.BANK || [];
 
 /* ------------------------------------------------------------- Dice Derby */
 SH.derbyStep = function () { var a = ri(6), b = ri(6); return { a: a, b: b, s: a + b }; };

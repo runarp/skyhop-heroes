@@ -284,9 +284,27 @@ async function mobTurn() {
 }
 
 /* ------------------------------------------------------------ Brain Boost */
+var COLORS = { red: '#ff5a5a', blue: '#4aa8ff', green: '#3fd086', gold: '#ffd23f', yellow: '#ffe14d', purple: '#9d86ff', orange: '#ff9a3c', pink: '#ff9ec4', white: '#ffffff', black: '#5d5176', brown: '#b07a45', grey: '#c9cfe0', gray: '#c9cfe0', silver: '#dfe3ee' };
+function faceChip(f, cls) {
+  if (typeof f === 'number' && f >= 0 && f <= 20 && f % 1 === 0) return '<span class="die hero ' + cls + '">' + ART.die(f >= 1 && f <= 6 ? 6 : f <= 8 ? 8 : 12, f) + '</span>';
+  return '<span class="chipface ' + cls + '" style="background:' + (COLORS[String(f).toLowerCase()] || '#e9e4f2') + '">' + UI.esc(String(f)) + '</span>';
+}
+function shortFace(f) { return typeof f === 'number' ? f : UI.esc(String(f).slice(0, 3)); }
+function maskCls(m) { return m === 2 ? 'good' : m === 1 ? 'mid' : 'off'; }
 function vizHTML(v) {
   var out = '', i, a, c;
   if (!v) return '';
+  if (v.t === 'facelist') return '<div class="facerow">' + v.faces.map(function (f, k) { return faceChip(f, maskCls(v.mask[k])); }).join('') + '</div>';
+  if (v.t === 'grid2') {
+    var cols = v.cols.length, given = v.mask.indexOf(1) >= 0;
+    v.rows.forEach(function (r, x) { v.cols.forEach(function (col, y) { var m = v.mask[x * cols + y]; out += '<i class="' + (m === 2 ? 'h1' : m === 1 ? 'hg' : '') + '">' + shortFace(r) + '·' + shortFace(col) + '</i>'; }); });
+    return '<span class="odds big" style="grid-template-columns:repeat(' + cols + ',' + (cols > 6 ? 31 : 34) + 'px);grid-auto-rows:26px">' + out + '</span>' +
+      '<span class="small soft">Each square is one way the two can land.' + (given ? ' Yellow squares fit what you were told, but miss.' : '') + '</span>';
+  }
+  if (v.t === 'coinlist') {
+    v.outs.forEach(function (o, k) { out += '<span class="pair ' + (v.mask[k] === 2 ? 'on' : v.mask[k] === 1 ? 'mid' : 'off') + (o.length > 3 ? ' four' : '') + '">' + o.map(function (x) { return '<span class="die">' + ART.die('c', x === 'H' ? 1 : 0) + '</span>'; }).join('') + '</span>'; });
+    return '<div class="facerow coins">' + out + '</div>';
+  }
   if (v.t === 'faces') {
     for (i = 1; i <= v.s; i++) out += '<span class="die hero' + (v.fn(i) ? ' good' : ' off') + '">' + ART.die(v.s, i) + '</span>';
     return '<div class="facerow">' + out + '</div>';
@@ -303,14 +321,17 @@ function vizHTML(v) {
   }
   return '';
 }
-async function askQuestion(q) {
-  var root = UI.openModal('<div class="m-head">' + ico('brain') + '<h2>Brain Boost</h2></div><p class="quiz-q">' + q.q + '</p><div class="quiz-a" id="quiz-a">' +
-    q.choices.map(function (c, i) { return '<button class="btn" data-pick="' + i + '">' + c + '</button>'; }).join('') + '</div><div id="quiz-why"></div>');
+async function askQuestion(q, opts) {
+  opts = opts || {};
+  var esc = UI.esc;
+  var root = UI.openModal('<div class="m-head">' + ico('brain') + '<h2 class="grow">' + (opts.title || 'Brain Boost') + '</h2>' + (opts.step ? '<span class="tag">' + opts.step + '</span>' : '') +
+    '<span class="tag fx">Level ' + q.lvl + '</span></div><p class="quiz-q">' + esc(q.q) + '</p><div class="quiz-a" id="quiz-a">' +
+    q.choices.map(function (c, i) { return '<button class="btn" data-pick="' + i + '">' + esc(c) + '</button>'; }).join('') + '</div><div id="quiz-why"></div>');
   var v = +(await UI.waitPick(root)), ok = v === q.a, btns = root.querySelectorAll('#quiz-a .btn');
   $('#quiz-a').classList.add('done'); btns[q.a].classList.add('right'); if (!ok && btns[v]) btns[v].classList.add('wrong');
   sfx(ok ? 'good' : 'bad');
-  $('#quiz-why').innerHTML = '<div class="why"><span><b>' + (ok ? 'Yes! ' : 'Not quite. ') + '</b>' + q.why + '</span>' + vizHTML(q.viz) + '</div>' +
-    '<div class="m-row" style="margin-top:12px"><button class="btn big green" data-pick="ok">' + (ok ? 'Double hit!' : 'OK') + '</button></div>';
+  $('#quiz-why').innerHTML = '<div class="why"><span><b>' + (ok ? 'Yes! ' : 'Not quite. ') + '</b>' + esc(q.why) + '</span>' + vizHTML(q.viz) + '</div>' +
+    '<div class="m-row" style="margin-top:12px"><button class="btn big green" data-pick="ok">' + (ok ? opts.okRight || 'Double hit!' : opts.okWrong || 'OK') + '</button></div>';
   var card = root.querySelector('.modal-card'); if (card) card.scrollTop = card.scrollHeight;
   await UI.waitPick(root);
   UI.closeModal();
@@ -322,9 +343,10 @@ ACT.bBrain = async function () {
   var b = B.b, S = UI.S;
   if (b.hero.boostCd > 0 || b.hero.boost || S.brain.mode === 'off') return;
   B.busy = true;
-  var ok = await askQuestion(SH.makeQuestion(S, B.mob.tier));
+  var q = BR.pick(S), ok = await askQuestion(q);
   if (!B) return;
-  SH.answerQuestion(S, ok); b.hero.boostCd = SH.boostCooldown(b);
+  var rec = BR.record(S, q, ok); b.hero.boostCd = SH.boostCooldown(b);
+  if (rec.after > rec.before) UI.toast('Brain level ' + rec.after + '! The puzzles get trickier.');
   if (ok) { b.hero.boost = true; SH.addStars(b, 1); floatText('hero', '×2', 'star'); say('Brain Boost! Your next attack hits <b>double</b>. +1 star.'); }
   else say('Good try! Brain Boost comes back in ' + b.hero.boostCd + ' rounds.');
   UI.persist(); update(); renderActions(); B.busy = false;

@@ -104,6 +104,18 @@ async function playBattle(page, tag, wantShots) {
   await page.waitForSelector('[data-act="closeDerby"]', { timeout: 60000 }); await shot(page, '14-derby-done');
   await tap(page, '[data-act="closeDerby"]');
   await tap(page, '[data-act="settings"]'); await shot(page, '15-settings'); await tap(page, '[data-act="closeSettings"]');
+  // Brain Gym: five puzzles, screenshots of the first question, its explanation and the summary
+  await tap(page, '[data-act="gym"]'); await shot(page, '15b-gym-intro'); await tap(page, '#modal [data-pick="go"]');
+  for (let i = 0; i < 5; i++) {
+    await page.waitForSelector('.quiz-q');
+    if (i === 0) await shot(page, '15c-gym-question');
+    await tap(page, '#quiz-a [data-pick]');
+    await page.waitForSelector('#quiz-why .why');
+    if (i === 0) await shot(page, '15d-gym-why');
+    await tap(page, '#modal [data-pick="ok"]');
+  }
+  await page.waitForSelector('#modal [data-pick="ok"]'); await shot(page, '15e-gym-done'); await tap(page, '#modal [data-pick="ok"]');
+  await tap(page, '[data-act="settings"]'); await shot(page, '15f-settings-report'); await tap(page, '[data-act="closeSettings"]');
   await tap(page, '[data-act="map"]'); await shot(page, '16-map');
   await tap(page, '.pin[data-id="tokyo"]'); await shot(page, '17-map-locked');
   await tap(page, '.pin[data-id="paris"]');
