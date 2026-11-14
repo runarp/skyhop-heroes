@@ -6,7 +6,7 @@
 //   node tools/gen-bank.mjs --fixture f.json   use saved model output instead of calling the API
 //   node tools/gen-bank.mjs --dry              show what would be added, change nothing
 //
-// Needs ANTHROPIC_API_KEY (a GitHub secret in the scheduled workflow). Nothing here runs in the
+// Needs OPENROUTER_API_KEY (a GitHub secret in the scheduled workflow). Nothing here runs in the
 // kids' game: the game only reads the database file, which works offline.
 import Anthropic from '@anthropic-ai/sdk';
 import { createRequire } from 'module';
@@ -23,10 +23,11 @@ const BANK = path.join(root, 'src/bank.json');
 const argv = process.argv.slice(2);
 const opt = (name, dflt) => { const i = argv.indexOf('--' + name); return i < 0 ? dflt : argv[i + 1]; };
 const flag = name => argv.includes('--' + name);
-const MODEL = opt('model', 'claude-opus-5-5');
+const MODEL = opt('model', 'anthropic/claude-opus-5.5');
 const COUNT = Math.max(1, Math.min(40, parseInt(opt('count', '20'), 10) || 20));
 const FIXTURE = opt('fixture', null);
 const DRY = flag('dry');
+const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY || '';
 
 const db = JSON.parse(fs.readFileSync(BANK, 'utf8'));
 BR.useDatabase(db);
@@ -149,14 +150,22 @@ ${JSON.stringify(examples, null, 1)}`;
 /* ------------------------------------------------------------- the model */
 let client = null;
 async function askClaude(system, user) {
-  client ??= new Anthropic();
-  const stream = client.beta.messages.stream({
+  if (!OPENROUTER_KEY) throw new Error('No API key found. Set OPENROUTER_API_KEY, or in GitHub add it under Settings → Secrets and variables → Actions.');
+  client ??= new Anthropic({
+    apiKey: OPENROUTER_KEY,
+    baseURL: 'https://openrouter.ai/api',
+    defaultHeaders: {
+      'HTTP-Referer': 'https://github.com/runarp/skyhop-heroes',
+      'X-Title': 'Skyhop Heroes brain puzzles',
+    },
+  });
+  // OpenRouter rejects this SCHEMA as a constrained-decoding grammar (too large). Ask for
+  // JSON in the prompt instead; sift() + BR.verifyItem still drop anything that does not fit.
+  const stream = client.messages.stream({
     model: MODEL,
     max_tokens: 64000,
-    betas: ['server-side-fallback-2026-07-01'],
-    fallbacks: 'default',
-    output_config: { effort: 'high', format: { type: 'json_schema', schema: SCHEMA } },
-    system,
+    output_config: { effort: 'high' },
+    system: system + '\n\nRespond with one JSON object only, no markdown fences, matching this shape:\n' + JSON.stringify(SCHEMA),
     messages: [{ role: 'user', content: user }],
   });
   const msg = await stream.finalMessage();
@@ -164,7 +173,10 @@ async function askClaude(system, user) {
   if (msg.stop_reason === 'max_tokens') throw new Error('The answer was cut off. Ask for fewer puzzles with --count.');
   const text = msg.content.filter(b => b.type === 'text').map(b => b.text).join('');
   console.log(`  ${msg.model}: ${msg.usage.input_tokens} tokens in, ${msg.usage.output_tokens} out.`);
-  return JSON.parse(text).items || [];
+  const jsonText = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+  const start = jsonText.indexOf('{'), end = jsonText.lastIndexOf('}');
+  if (start < 0 || end < start) throw new Error('Model reply was not JSON.');
+  return JSON.parse(jsonText.slice(start, end + 1)).items || [];
 }
 
 /* ------------------------------------------------------------ check & add */
@@ -221,11 +233,10 @@ async function main() {
 }
 
 main().catch(err => {
-  if (err instanceof Anthropic.AuthenticationError) console.error('The API key was refused. Set ANTHROPIC_API_KEY to a valid key.');
+  if (err instanceof Anthropic.AuthenticationError) console.error('The API key was refused. Set OPENROUTER_API_KEY to a valid key.');
   else if (err instanceof Anthropic.RateLimitError) console.error('Rate limited by the API. Try again in a few minutes.');
   else if (err instanceof Anthropic.APIConnectionError) console.error('Could not reach the API: ' + err.message);
   else if (err instanceof Anthropic.APIError) console.error(`API error ${err.status}: ${err.message}`);
-  else if (/authentication method/i.test(String(err.message))) console.error('No API key found. Set ANTHROPIC_API_KEY, or in GitHub add it under Settings → Secrets and variables → Actions.');
   else console.error(err.message || err);
   process.exit(1);
 });
